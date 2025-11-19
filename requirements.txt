@@ -1,0 +1,5 @@
+streamlit
+nbformat
+nbconvert
+jupyter-client
+ipykernel
