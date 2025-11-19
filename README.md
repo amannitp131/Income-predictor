@@ -1,4 +1,4 @@
-# Income Prediction Project — README
+# Income Prediction Project
 
 This repository contains a Jupyter notebook and small Streamlit apps used to train and evaluate an XGBoost classifier on the UCI Adult (income) dataset and to run / report on the notebook results.
 
@@ -94,5 +94,5 @@ License / data
  - The `income.csv` dataset is the UCI Adult dataset. Respect the dataset license and privacy considerations when using or distributing derived models.
 
 -----
-Generated on: 2025-11-18
+
 
