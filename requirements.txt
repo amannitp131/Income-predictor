@@ -1,7 +1,12 @@
 streamlit
+pandas
+numpy
+scikit-learn
+xgboost
+joblib
+category_encoders
 nbformat
 nbconvert
 jupyter-client
 ipykernel
-joblib
 
