@@ -454,40 +454,71 @@ def show_landing():
 
 def show_loading():
     # Loading page: prepare encoders and model while showing progress
-    st.header('Preparing prediction form — please wait')
-    st.write('Initializing encoders and loading model. This may take a few seconds.')
+    # Render all loading UI inside a temporary placeholder so we can clear it fully
+    placeholder = st.empty()
 
     # only run heavy init once per click
     if st.session_state.get('loading_started'):
-        st.info('Still loading — please wait...')
+        # show a small transient info in the placeholder
+        placeholder.info('Still loading — please wait...')
         return
 
     st.session_state['loading_started'] = True
 
-    with st.spinner('Preparing encoders and model...'):
-        progress = st.progress(0)
+    # staged messages so user sees progress and we can debug where it stops
+    try:
+        with placeholder.container():
+            st.header('Preparing prediction form — please wait')
+            st.write('Initializing encoders and loading model. This may take a few seconds.')
+
+            p1 = st.empty()
+            with st.spinner('Step 1/2 — preparing encoders and schema...'):
+                progress = st.progress(0)
+                for i in range(15):
+                    time.sleep(0.03)
+                    progress.progress(int((i+1)/30*100))
+                art_local = prepare_encoders_and_schema()
+                st.session_state['art'] = art_local
+                p1.success('Encoders and schema ready')
+
+            p2 = st.empty()
+            with st.spinner('Step 2/2 — loading model...'):
+                progress2 = st.progress(0)
+                for i in range(15):
+                    time.sleep(0.03)
+                    progress2.progress(int((i+1)/30*100))
+                model_local = load_model()
+                st.session_state['model'] = model_local
+                if model_local is None:
+                    p2.warning('Model not found or failed to load. The form will still open for preprocessing inspection.')
+                else:
+                    p2.success('Model loaded')
+
+    except Exception as e:
+        # show full exception for debugging and reset state so user can try again
+        st.error('Initialization failed. See details below:')
+        st.exception(e)
+        st.session_state['loading_started'] = False
+        # go back to landing so user can retry
+        st.session_state['page'] = 'landing'
+        # directly render landing content for this run
+        # clear any temporary placeholders if they exist
         try:
-            for i in range(30):
-                time.sleep(0.04)
-                progress.progress(int((i+1)/30*100))
+            placeholder.empty()
+        except Exception:
+            pass
+        show_landing()
+        return
 
-            # prepare and cache encoders/schema
-            art_local = prepare_encoders_and_schema()
-            st.session_state['art'] = art_local
-
-            # load model (may return None)
-            model_local = load_model()
-            st.session_state['model'] = model_local
-
-        except Exception as e:
-            st.error(f'Initialization failed: {e}')
-            st.session_state['loading_started'] = False
-            st.session_state['page'] = 'landing'
-            return
-
-    # done: go to form
+    # done: clear temporary messages, go to form and render it immediately
     st.session_state['loading_started'] = False
     st.session_state['page'] = 'form'
+    try:
+        placeholder.empty()
+    except Exception:
+        pass
+    show_form()
+    return
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
@@ -553,12 +584,32 @@ def show_form():
 
     if submitted:
         # convert empty text inputs to numeric values (empty -> 0)
-        age_val = int(pd.to_numeric(age, errors='coerce').fillna(0))
-        fnlwgt_val = int(pd.to_numeric(fnlwgt, errors='coerce').fillna(0))
-        education_num_val = int(pd.to_numeric(education_num, errors='coerce').fillna(0))
-        capital_gain_val = float(pd.to_numeric(capital_gain, errors='coerce').fillna(0))
-        capital_loss_val = float(pd.to_numeric(capital_loss, errors='coerce').fillna(0))
-        hours_val = float(pd.to_numeric(hours_per_week, errors='coerce').fillna(0))
+        def _safe_num(x, as_type=float):
+            # try pandas conversion first
+            v = pd.to_numeric(x, errors='coerce')
+            # pd.to_numeric may return a numpy scalar if input is a scalar
+            if hasattr(v, 'fillna'):
+                v = v.fillna(0)
+                v = v.iloc[0] if hasattr(v, 'iloc') else v
+            else:
+                # numpy scalar or python scalar
+                try:
+                    if np.isnan(v):
+                        v = 0
+                except Exception:
+                    # not a float-like
+                    v = 0
+            try:
+                return as_type(v)
+            except Exception:
+                return as_type(0)
+
+        age_val = int(_safe_num(age, as_type=float))
+        fnlwgt_val = int(_safe_num(fnlwgt, as_type=float))
+        education_num_val = int(_safe_num(education_num, as_type=float))
+        capital_gain_val = float(_safe_num(capital_gain, as_type=float))
+        capital_loss_val = float(_safe_num(capital_loss, as_type=float))
+        hours_val = float(_safe_num(hours_per_week, as_type=float))
 
         raw = pd.DataFrame([{ 
             'age': age_val,
