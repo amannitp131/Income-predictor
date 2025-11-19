@@ -208,9 +208,6 @@ def prepare_encoders_and_schema():
     return artifacts
 
 
-art = prepare_encoders_and_schema()
-
-
 def preprocess_single(raw: pd.DataFrame, artifacts: dict) -> pd.DataFrame:
     df = raw.copy()
     ohe_workclass = artifacts['ohe_workclass']
@@ -312,9 +309,7 @@ def load_model():
         return None
 
 
-model = load_model()
-if model is None:
-    st.warning('Model file `best_xgboost_model.joblib` not found or failed to load. Train and save the model in the notebook first.')
+# model will be loaded lazily when the user clicks Proceed (see `show_loading`)
 
 
 def show_landing():
@@ -449,12 +444,50 @@ def show_landing():
     st.markdown("<div class='neon-btn' style='text-align:center;'>", unsafe_allow_html=True)
 
     if st.button("🔮 Proceed to Prediction"):
-        st.session_state["loading"] = True
-        with st.spinner("Loading the ML Prediction Form..."):
-            time.sleep(2)
-        st.session_state["page"] = "form"
+        # switch to loading page where heavy initialization runs
+        st.session_state["page"] = "loading"
+        # ensure flags
+        st.session_state.setdefault('loading_started', False)
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def show_loading():
+    # Loading page: prepare encoders and model while showing progress
+    st.header('Preparing prediction form — please wait')
+    st.write('Initializing encoders and loading model. This may take a few seconds.')
+
+    # only run heavy init once per click
+    if st.session_state.get('loading_started'):
+        st.info('Still loading — please wait...')
+        return
+
+    st.session_state['loading_started'] = True
+
+    with st.spinner('Preparing encoders and model...'):
+        progress = st.progress(0)
+        try:
+            for i in range(30):
+                time.sleep(0.04)
+                progress.progress(int((i+1)/30*100))
+
+            # prepare and cache encoders/schema
+            art_local = prepare_encoders_and_schema()
+            st.session_state['art'] = art_local
+
+            # load model (may return None)
+            model_local = load_model()
+            st.session_state['model'] = model_local
+
+        except Exception as e:
+            st.error(f'Initialization failed: {e}')
+            st.session_state['loading_started'] = False
+            st.session_state['page'] = 'landing'
+            return
+
+    # done: go to form
+    st.session_state['loading_started'] = False
+    st.session_state['page'] = 'form'
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
 
@@ -468,6 +501,9 @@ def show_landing():
 
 def show_form():
     st.header('Enter a single person record')
+    # retrieve artifacts and model from session state (may be loaded by show_loading)
+    art = st.session_state.get('art', None)
+    model = st.session_state.get('model', None)
     df_ref = pd.read_csv(DATA_PATH)
     work_choices = sorted(df_ref['workclass'].fillna('unknown').unique().tolist())
     education_choices = [
@@ -546,7 +582,7 @@ def show_form():
             for i in range(20):
                 time.sleep(0.03)
                 progress.progress(int((i+1)/20*100))
-            processed = preprocess_single(raw, art)
+            processed = preprocess_single(raw, art if art is not None else prepare_encoders_and_schema())
 
         with st.expander('View processed features (model input)'):
             st.dataframe(processed)
@@ -575,7 +611,7 @@ def show_form():
             processed = processed[model_features]
         else:
             # fallback
-            fallback_cols = art.get('feature_columns', None)
+            fallback_cols = art.get('feature_columns', None) if art is not None else None
             if fallback_cols is not None:
                 for c in fallback_cols:
                     if c not in processed.columns:
@@ -615,7 +651,10 @@ def show_form():
 
 
 # decide which page to show
-if st.session_state.get('page') == 'landing':
+page = st.session_state.get('page')
+if page == 'landing':
     show_landing()
+elif page == 'loading':
+    show_loading()
 else:
     show_form()
